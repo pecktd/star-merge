@@ -240,7 +240,8 @@ function note(m, t, dur, type, vol) {
   o.start(t); o.stop(t + dur + .05);
 }
 
-const isHurry = () => state === 'play' && mode === 'timed' && timeLeft <= 10;
+const HURRY_SECONDS = 20;   // upbeat music for the end of a timed game
+const isHurry = () => state === 'play' && mode === 'timed' && timeLeft <= HURRY_SECONDS;
 
 function musicTick() {
   if (!A.ctx || A.ctx.state !== 'running') return;
@@ -250,7 +251,7 @@ function musicTick() {
     const i = A.step, t = A.next, ch = CHORDS[Math.floor(i / 8) % 4];
     const hurry = isHurry(), step = hurry ? STEP * .7 : STEP;
     if (A.musicOn && hurry) {
-      // last 10 seconds: faster, octave-jumping bass, melody up an octave, beat on every step
+      // final stretch: faster, octave-jumping bass, melody up an octave, beat on every step
       note(ch[0] - (i % 2 ? 0 : 12), t, step * .9, 'triangle', .6);
       if (MEL[i]) note(MEL[i] + 12, t, step * .8, 'square', .08);
       noiseBurst(.03, i % 2 ? .06 : .1, 7000, 0, A.mus, t);
