@@ -4,7 +4,7 @@ A drop-and-merge puzzle game in pixel-art space. Drop small bodies into the box.
 
 Ceres → Pluto → Moon → Mercury → Mars → Venus → Earth → Kepler-22b → Neptune → Uranus → Saturn → Jupiter → HD 189733b → Proxima Centauri → Sun → Sirius → Arcturus → Rigel → Betelgeuse → Black Hole
 
-Choose **Easy, Normal or Hard** in the menu. Pieces are 1×, 1.2× or 1.4× the base size. **Timed** mode can start at 1, 2 or 3 minutes, and **Endless** has no timer. Each combination keeps its own best score.
+In the menu, choose a difficulty (**Easy, Normal or Hard**: pieces are 1.2×, 1.4× or 1.6× the base size), a mode (**Timed** at 1, 2 or 3 minutes, or **Endless**), then press **START**. Each combination keeps its own best score.
 
 ## Files
 - `index.html`: the whole game. It has no build step, and the music and sound effects are synthesized with Web Audio.
