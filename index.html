@@ -51,6 +51,11 @@
   .board .rk { width: 2em; opacity: .7; }
   .board .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .board .sc { font-weight: 700; }
+  .name { display: block; box-sizing: border-box; width: 100%; margin: calc(var(--u) * 12) 0; padding: calc(var(--u) * 12);
+    font: inherit; font-size: calc(var(--u) * 26); text-align: center; color: #fff; background: #0b0820;
+    border: calc(var(--u) * 3) solid #6a5cff; border-radius: calc(var(--u) * 6); outline: none;
+    user-select: text; -webkit-user-select: text; touch-action: manipulation; }
+  .name:focus { border-color: #ffd666; }
 </style>
 </head>
 <body>
@@ -87,9 +92,21 @@
           <button class="btn tog" data-act="sfx" id="tSfx1">🔊 Sound</button>
         </div>
         <div class="row">
-          <button class="btn tog acct" data-act="signin" id="acctBtn">Sign in with Google</button>
+          <button class="btn tog acct" data-act="signin" id="acctBtn">👤 Who's playing?</button>
           <button class="btn tog acct" data-act="board" style="flex:.6">🏆 Top 10</button>
         </div>
+      </div>
+    </div>
+
+    <div id="who" class="ov hidden">
+      <div class="card">
+        <h2>WHO'S PLAYING?</h2>
+        <p class="sub">Your name goes on the Top 10.</p>
+        <input class="name" id="nameIn" maxlength="16" placeholder="Your name" autocomplete="nickname" enterkeyhint="go">
+        <button class="btn gold" data-act="guestGo">Play</button>
+        <p class="sub">or keep your scores on every device:</p>
+        <button class="btn tog" data-act="google" style="width:100%">Sign in with Google</button>
+        <button class="btn tog" data-act="whoBack" style="width:100%;margin-top:calc(var(--u)*14)">Back</button>
       </div>
     </div>
 
@@ -706,6 +723,8 @@ canvas.addEventListener('pointermove', e => {
 canvas.addEventListener('pointerup', () => { if (aiming) { aiming = false; drop(); } });
 canvas.addEventListener('pointercancel', () => { aiming = false; });
 
+document.getElementById('nameIn').addEventListener('keydown', e => { if (e.key === 'Enter') { audioInit(); guestGo(); } });
+
 addEventListener('keydown', e => {
   if (state === 'play') {
     if (e.key === 'ArrowLeft' || e.key === 'a') aimX -= 24;
@@ -720,7 +739,7 @@ function pauseGame() { if (state === 'play') { state = 'pause'; aiming = false; 
 function resumeGame() { state = 'play'; showOverlay(null); }
 
 function showOverlay(id) {
-  for (const k of ['menu', 'pause', 'over', 'board']) document.getElementById(k).classList.toggle('hidden', k !== id);
+  for (const k of ['menu', 'pause', 'over', 'board', 'who']) document.getElementById(k).classList.toggle('hidden', k !== id);
   if (id === 'menu') refreshMenu();
 }
 
@@ -730,17 +749,19 @@ function refreshMenu() {
   document.getElementById('timeRow').classList.toggle('invisible', sel.mode !== 'timed');
   const b = best[keyFor(sel.mode, sel.min * 60, difficulty)] || 0;
   document.getElementById('bestSel').textContent = labelFor(sel.mode, sel.min * 60, difficulty) + ' · Best ' + b;
-  // players must be signed in to play
-  document.getElementById('startLbl').textContent = user ? 'START' : 'SIGN IN TO PLAY';
-  if (!user) document.getElementById('bestSel').textContent = 'with your Google account';
 }
 
-// ---------------------------------------------------------------- cloud: Google sign-in + leaderboard
+// ---------------------------------------------------------------- cloud: Google or guest sign-in + leaderboard
+// Guests type a name and get an anonymous Firebase account, kept on this device.
 // window.Cloud comes from the firebase module at the end of the page
 const BOARD_PREFIX = 'sm_';
 const VALID_KEYS = new Set();
 for (const d in DIFFICULTY) for (const t of ['timed60', 'timed120', 'timed180', 'endless']) VALID_KEYS.add(t + DIFFICULTY[d].best);
 let user = null, boardFrom = 'menu';
+let guestName = '';
+try { guestName = localStorage.getItem('sm_name') || ''; } catch (e) {}
+const isGoogle = () => !!user && !user.isAnonymous;
+const playerName = () => isGoogle() ? shortName(user) : guestName;
 
 // public name on the leaderboard: first name + last initial
 function shortName(u) {
@@ -749,8 +770,35 @@ function shortName(u) {
 }
 
 function refreshAcct() {
-  refreshMenu();
-  document.getElementById('acctBtn').textContent = user ? shortName(user) + ' · Sign out' : 'Sign in with Google';
+  document.getElementById('acctBtn').textContent =
+    isGoogle() ? shortName(user) + ' · Sign out' : guestName ? '✎ ' + guestName : "👤 Who's playing?";
+}
+
+// START: Google players and named guests go straight in, everyone else picks a name first
+function startPressed() {
+  if (isGoogle() || guestName) { ensureGuestAuth(); newGame(sel.mode, sel.min * 60); }
+  else openWho();
+}
+
+function openWho() {
+  document.getElementById('nameIn').value = guestName;
+  showOverlay('who');
+}
+
+function guestGo() {
+  const n = document.getElementById('nameIn').value.trim().replace(/\s+/g, ' ').slice(0, 16);
+  if (!n) { document.getElementById('nameIn').focus(); return; }
+  const renamed = n !== guestName;
+  guestName = n;
+  try { localStorage.setItem('sm_name', n); } catch (e) {}
+  refreshAcct();
+  ensureGuestAuth();
+  if (renamed && user && user.isAnonymous) for (const k of VALID_KEYS) if (best[k]) cloudSubmit(k);
+  newGame(sel.mode, sel.min * 60);
+}
+
+function ensureGuestAuth() {
+  if (!user && !isGoogle() && guestName && window.Cloud) Cloud.signInGuest().catch(e => console.warn('guest sign-in failed', e));
 }
 
 window.onCloudUser = async u => {
@@ -766,15 +814,15 @@ window.onCloudUser = async u => {
 };
 
 function cloudSubmit(key) {
-  if (!user || !window.Cloud) return;
+  if (!user || !window.Cloud || !playerName()) return;
   Cloud.saveBest(user.uid, key, best[key]).catch(e => console.warn('save failed', e));
-  Cloud.submit(BOARD_PREFIX + key, user.uid, shortName(user), best[key]).catch(e => console.warn('submit failed', e));
+  Cloud.submit(BOARD_PREFIX + key, user.uid, playerName(), best[key]).catch(e => console.warn('submit failed', e));
 }
 
 async function signInOut() {
   if (!window.Cloud) { alert('Online features are not available right now.'); return; }
-  if (user) { if (confirm('Sign out? Your scores stay saved in your account.')) Cloud.signOut(); return; }
-  try { await Cloud.signIn(); }
+  if (isGoogle()) { if (confirm('Sign out? Your scores stay saved in your account.')) Cloud.signOut(); return; }
+  try { await Cloud.signIn(); if (state === 'menu') showOverlay('menu'); }
   catch (e) { window.onCloudError(e); }
 }
 
@@ -795,7 +843,7 @@ async function openBoard() {
   if (!window.Cloud) { note('Leaderboard is offline.'); return; }
   try {
     const rows = await Cloud.top(BOARD_PREFIX + key);
-    if (!rows.length) { note(user ? 'No scores yet — be the first!' : 'No scores yet. Sign in to be the first!'); return; }
+    if (!rows.length) { note('No scores yet — be the first!'); return; }
     list.innerHTML = '';
     rows.forEach((r, i) => {
       const li = document.createElement('li');
@@ -805,7 +853,7 @@ async function openBoard() {
       }
       list.appendChild(li);
     });
-    if (!user) { const li = document.createElement('li'); li.textContent = 'Sign in to get on the board.'; li.style.opacity = .7; list.appendChild(li); }
+    if (!user) { const li = document.createElement('li'); li.textContent = 'Play to get on the board.'; li.style.opacity = .7; list.appendChild(li); }
   } catch (e) { console.warn(e); note('Could not load the leaderboard.'); }
 }
 
@@ -817,7 +865,7 @@ function syncToggles() {
 document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('click', () => {
   audioInit();
   const act = btn.dataset.act;
-  if (act === 'start') { if (user) newGame(sel.mode, sel.min * 60); else signInOut(); }
+  if (act === 'start') startPressed();
   else if (act === 'mode') { sel.mode = btn.dataset.mode; saveSel(); refreshMenu(); }
   else if (act === 'min') { sel.min = +btn.dataset.min; saveSel(); refreshMenu(); }
   else if (act === 'restart') { if (state === 'pause') recordScore(); newGame(); }
@@ -826,7 +874,10 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
   else if (act === 'diff') { setDifficulty(btn.dataset.diff); refreshMenu(); }
   else if (act === 'music') setMusic(!A.musicOn);
   else if (act === 'sfx') setSfx(!A.sfxOn);
-  else if (act === 'signin') signInOut();
+  else if (act === 'signin') { if (isGoogle()) signInOut(); else openWho(); }
+  else if (act === 'google') signInOut();
+  else if (act === 'guestGo') guestGo();
+  else if (act === 'whoBack') showOverlay('menu');
   else if (act === 'board') openBoard();
   else if (act === 'boardBack') showOverlay(boardFrom);
   SFX.click();
@@ -851,6 +902,7 @@ addEventListener('resize', resize);
 resize();
 setDifficulty(difficulty);
 syncToggles();
+refreshAcct();
 showOverlay('menu');
 if (demo) {
   const q = new URLSearchParams(location.search);
@@ -866,7 +918,7 @@ requestAnimationFrame(frame);
 const V = 'https://www.gstatic.com/firebasejs/10.12.2/';
 try {
   const { initializeApp } = await import(V + 'firebase-app.js');
-  const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } = await import(V + 'firebase-auth.js');
+  const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInAnonymously, getRedirectResult, signOut, onAuthStateChanged } = await import(V + 'firebase-auth.js');
   const { getFirestore, doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs } = await import(V + 'firebase-firestore.js');
   const app = initializeApp({
     apiKey: 'AIzaSyDxhqPV_ZioIawO7K3NZkSLOJ3sGPZF2rQ',
@@ -886,6 +938,7 @@ try {
         else throw e;
       }
     },
+    signInGuest: () => signInAnonymously(auth),
     signOut: () => signOut(auth),
     // players/{uid}: { best: { <key>: score } }, private to the player
     loadBest: async uid => (await getDoc(doc(db, 'players', uid))).data()?.best || {},
