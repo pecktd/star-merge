@@ -53,6 +53,12 @@
       <div class="card">
         <h1>STAR<br>MERGE</h1>
         <p class="sub">Drop planets. Two of a kind merge into a bigger one.<br>Grow all 20 from Ceres up to a Black Hole!</p>
+        <p class="label">Difficulty · bigger pieces are harder</p>
+        <div class="row">
+          <button class="btn tog" data-act="diff" data-diff="easy">Easy</button>
+          <button class="btn tog" data-act="diff" data-diff="normal">Normal</button>
+          <button class="btn tog" data-act="diff" data-diff="hard">Hard</button>
+        </div>
         <p class="label">Timed · merges add time</p>
         <div class="row">
           <button class="btn gold tbtn" data-act="timed" data-min="1">1 min<small id="best60">Best 0</small></button>
@@ -119,6 +125,18 @@ const BODIES = [
   return { name, color, img, r: 15 * Math.pow(1.122, i) };
 });
 const MAX_LVL = BODIES.length - 1;
+const DIFFICULTY = { easy: 1, normal: 1.2, hard: 1.4 };   // size multiplier for every piece
+for (const f of BODIES) f.r0 = f.r;
+let difficulty = 'normal';
+try { const d = localStorage.getItem('sm_diff'); if (DIFFICULTY[d]) difficulty = d; } catch (e) {}
+
+function setDifficulty(d) {
+  difficulty = d;
+  try { localStorage.setItem('sm_diff', d); } catch (e) {}
+  for (const f of BODIES) f.r = f.r0 * DIFFICULTY[d];
+}
+// held pieces sit lower when they are big, so they never poke into the HUD
+const dropY = r => Math.max(DROP_Y, BOX.t + r + 4);
 const DROP_WEIGHTS = [28, 24, 19, 14, 9, 6]; // only the 6 smallest bodies are dropped
 
 const bgImg = new Image();
@@ -288,7 +306,8 @@ let dangerT = 0, shake = 0, lastTickSec = 99, overDelay = 0, flash = 0;
 let best = { timed60: 0, timed120: 0, timed180: 0, endless: 0 };
 try { best = Object.assign(best, JSON.parse(localStorage.getItem('sm_best') || '{}')); } catch (e) {}
 if (best.timed && !best.timed60) best.timed60 = best.timed;   // scores saved before the 1/2/3 min choice
-const bestKey = () => mode === 'timed' ? 'timed' + startTime : 'endless';
+// easy keeps the original keys so scores from before difficulty levels still count
+const bestKey = () => (mode === 'timed' ? 'timed' + startTime : 'endless') + (difficulty === 'easy' ? '' : '_' + difficulty);
 
 function randDrop() {
   const tot = DROP_WEIGHTS.reduce((a, b) => a + b, 0);
@@ -321,8 +340,8 @@ function drop() {
   const r = BODIES[heldLvl].r;
   const x = Math.max(BOX.l + r, Math.min(BOX.r - r, aimX));
   // the previous piece may still be in the drop spot; wait for it instead of overlapping
-  if (bodies.some(b => Math.hypot(b.x - x, b.y - DROP_Y) < b.r + r)) { queued = true; return; }
-  spawn(x, DROP_Y, heldLvl);
+  if (bodies.some(b => Math.hypot(b.x - x, b.y - dropY(r)) < b.r + r)) { queued = true; return; }
+  spawn(x, dropY(r), heldLvl);
   heldLvl = -1; cooldown = DROP_COOLDOWN;
   SFX.drop();
 }
@@ -529,8 +548,8 @@ function render() {
       if (dx < b.r) yHit = Math.min(yHit, b.y - Math.sqrt(b.r * b.r - dx * dx));
     }
     ctx.fillStyle = 'rgba(255,255,255,.35)';
-    for (let y = DROP_Y + r + 4; y < yHit; y += 14) ctx.fillRect(Math.round(x) - 1, y, 3, 7);
-    drawBody(heldLvl, x, DROP_Y + Math.round(Math.sin(clock * 4) * 2), r);
+    for (let y = dropY(r) + r + 4; y < yHit; y += 14) ctx.fillRect(Math.round(x) - 1, y, 3, 7);
+    drawBody(heldLvl, x, dropY(r) + Math.round(Math.sin(clock * 4) * 2), r);
   }
 
   for (const b of bodies) {
@@ -599,7 +618,7 @@ function drawHud() {
     if (blinkOn) text(Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'), 395, 70, 34, low ? '#ff5050' : '#fff');
   } else {
     text('BEST', 395, 34, 18, '#8f88ff', 'center', null);
-    text(String(Math.max(best.endless || 0, score)), 395, 70, 30, '#fff');
+    text(String(Math.max(best[bestKey()] || 0, score)), 395, 70, 30, '#fff');
   }
 
   ctx.fillStyle = '#f08a24'; ctx.fillRect(466, 32, 48, 48);
@@ -657,12 +676,14 @@ function resumeGame() { state = 'play'; showOverlay(null); }
 function showOverlay(id) {
   for (const k of ['menu', 'pause', 'over']) document.getElementById(k).classList.toggle('hidden', k !== id);
   if (id === 'menu') {
-    for (const t of TIME_OPTIONS) document.getElementById('best' + t).textContent = 'Best ' + (best['timed' + t] || 0);
-    document.getElementById('bestEndless').textContent = "Don't overflow · Best " + (best.endless || 0);
+    const sfx = difficulty === 'easy' ? '' : '_' + difficulty;
+    for (const t of TIME_OPTIONS) document.getElementById('best' + t).textContent = 'Best ' + (best['timed' + t + sfx] || 0);
+    document.getElementById('bestEndless').textContent = "Don't overflow · Best " + (best['endless' + sfx] || 0);
   }
 }
 
 function syncToggles() {
+  document.querySelectorAll('[data-diff]').forEach(b => b.classList.toggle('off', b.dataset.diff !== difficulty));
   for (const id of ['tMusic1', 'tMusic2']) document.getElementById(id).classList.toggle('off', !A.musicOn);
   for (const id of ['tSfx1', 'tSfx2']) document.getElementById(id).classList.toggle('off', !A.sfxOn);
 }
@@ -675,6 +696,7 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
   else if (act === 'restart') newGame();
   else if (act === 'resume') resumeGame();
   else if (act === 'menu') { state = 'menu'; bodies = []; showOverlay('menu'); }
+  else if (act === 'diff') { setDifficulty(btn.dataset.diff); syncToggles(); showOverlay('menu'); }
   else if (act === 'music') setMusic(!A.musicOn);
   else if (act === 'sfx') setSfx(!A.sfxOn);
   SFX.click();
@@ -697,11 +719,14 @@ function frame(now) {
 const demo = /[?&]demo\b/.test(location.search);
 addEventListener('resize', resize);
 resize();
+setDifficulty(difficulty);
 syncToggles();
 showOverlay('menu');
 if (demo) {
+  const q = new URLSearchParams(location.search);
+  if (DIFFICULTY[q.get('diff')]) setDifficulty(q.get('diff'));   // ?diff=hard
   newGame('endless');
-  const ff = +(new URLSearchParams(location.search).get('demo')) || 0; // ?demo=40 fast-forwards 40s
+  const ff = +q.get('demo') || 0; // ?demo=40 fast-forwards 40s
   for (let i = 0; i < ff * 60 && state === 'play'; i++) update();
 }
 requestAnimationFrame(frame);
