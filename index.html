@@ -764,11 +764,13 @@ async function signInOut() {
   if (!window.Cloud) { alert('Online features are not available right now.'); return; }
   if (user) { if (confirm('Sign out? Your scores stay saved in your account.')) Cloud.signOut(); return; }
   try { await Cloud.signIn(); }
-  catch (e) {
-    if (e.code === 'auth/unauthorized-domain') alert('Sign-in only works on pkrig.com/games/star-merge');
-    else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') alert('Sign-in failed: ' + (e.code || e.message));
-  }
+  catch (e) { window.onCloudError(e); }
 }
+
+window.onCloudError = e => {
+  if (e.code === 'auth/unauthorized-domain') alert('Sign-in only works on pkrig.com/games/star-merge');
+  else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') alert('Sign-in failed: ' + (e.code || e.message));
+};
 
 async function openBoard() {
   const fromOver = state === 'over';
@@ -853,7 +855,7 @@ requestAnimationFrame(frame);
 const V = 'https://www.gstatic.com/firebasejs/10.12.2/';
 try {
   const { initializeApp } = await import(V + 'firebase-app.js');
-  const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } = await import(V + 'firebase-auth.js');
+  const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } = await import(V + 'firebase-auth.js');
   const { getFirestore, doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs } = await import(V + 'firebase-firestore.js');
   const app = initializeApp({
     apiKey: 'AIzaSyDxhqPV_ZioIawO7K3NZkSLOJ3sGPZF2rQ',
@@ -883,6 +885,8 @@ try {
       .docs.map(d => ({ uid: d.id, ...d.data() })),
   };
   onAuthStateChanged(auth, u => window.onCloudUser(u));
+  // errors from the redirect fallback only surface here, after the page reloads
+  getRedirectResult(auth).catch(e => window.onCloudError(e));
 } catch (e) { console.warn('firebase unavailable', e); }
 </script>
 </body>
