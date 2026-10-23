@@ -43,6 +43,14 @@
     background: #2a2266; color: #d8dcff; text-shadow: none; box-shadow: 0 calc(var(--u) * 5) 0 #15103a; }
   .tog:active { box-shadow: 0 calc(var(--u) * 1) 0 #15103a; }
   .tog.off { opacity: .45; }
+  .acct { font-size: calc(var(--u) * 16); padding: calc(var(--u) * 8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .board { list-style: none; margin: calc(var(--u) * 8) 0; padding: 0; font-size: calc(var(--u) * 19); text-align: left; min-height: calc(var(--u) * 300); }
+  .board li { display: flex; gap: calc(var(--u) * 10); padding: calc(var(--u) * 5) calc(var(--u) * 8); border-radius: calc(var(--u) * 4); }
+  .board li:nth-child(odd) { background: rgba(106, 92, 255, .12); }
+  .board li.me { background: rgba(255, 214, 102, .25); color: #ffd666; }
+  .board .rk { width: 2em; opacity: .7; }
+  .board .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board .sc { font-weight: 700; }
 </style>
 </head>
 <body>
@@ -78,6 +86,19 @@
           <button class="btn tog" data-act="music" id="tMusic1">♪ Music</button>
           <button class="btn tog" data-act="sfx" id="tSfx1">🔊 Sound</button>
         </div>
+        <div class="row">
+          <button class="btn tog acct" data-act="signin" id="acctBtn">Sign in with Google</button>
+          <button class="btn tog acct" data-act="board" style="flex:.6">🏆 Top 10</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="board" class="ov hidden">
+      <div class="card">
+        <h2>TOP 10</h2>
+        <p class="sub" id="boardSub"></p>
+        <ol class="board" id="boardList"></ol>
+        <button class="btn tog" data-act="boardBack" style="width:100%">Back</button>
       </div>
     </div>
 
@@ -102,7 +123,10 @@
         <p class="sub" id="overBest">Best 0</p>
         <p class="sub" id="overBiggest">Biggest: Ceres</p>
         <button class="btn gold" data-act="restart">Play again</button>
-        <button class="btn tog" data-act="menu" style="width:100%">Main menu</button>
+        <div class="row">
+          <button class="btn tog" data-act="menu">Main menu</button>
+          <button class="btn tog" data-act="board">🏆 Top 10</button>
+        </div>
       </div>
     </div>
   </div>
@@ -316,6 +340,8 @@ try { best = Object.assign(best, JSON.parse(localStorage.getItem('sm_best') || '
 if (best.timed && !best.timed60) best.timed60 = best.timed;   // scores saved before the 1/2/3 min choice
 const keyFor = (m, secs, d) => (m === 'timed' ? 'timed' + secs : 'endless') + DIFFICULTY[d].best;
 const bestKey = () => keyFor(mode, startTime, difficulty);
+const labelFor = (m, secs, d) => (m === 'timed' ? secs / 60 + ' min' : 'Endless') + ' · ' + d[0].toUpperCase() + d.slice(1);
+function saveBestLocal() { try { localStorage.setItem('sm_best', JSON.stringify(best)); } catch (e) {} }
 
 // menu selection, remembered between visits
 let sel = { mode: 'timed', min: 1 };
@@ -505,7 +531,7 @@ function gameOver(reason) {
   state = 'over'; overDelay = 1;
   SFX.over();
   const key = bestKey(), isBest = score > (best[key] || 0);
-  if (isBest) { best[key] = score; try { localStorage.setItem('sm_best', JSON.stringify(best)); } catch (e) {} }
+  if (isBest) { best[key] = score; saveBestLocal(); cloudSubmit(key); }
   document.getElementById('overTitle').textContent = reason;
   document.getElementById('overScore').textContent = score;
   document.getElementById('overBest').textContent = isBest ? '★ New best! ★' : 'Best ' + best[key];
@@ -687,7 +713,7 @@ function pauseGame() { if (state === 'play') { state = 'pause'; aiming = false; 
 function resumeGame() { state = 'play'; showOverlay(null); }
 
 function showOverlay(id) {
-  for (const k of ['menu', 'pause', 'over']) document.getElementById(k).classList.toggle('hidden', k !== id);
+  for (const k of ['menu', 'pause', 'over', 'board']) document.getElementById(k).classList.toggle('hidden', k !== id);
   if (id === 'menu') refreshMenu();
 }
 
@@ -696,7 +722,78 @@ function refreshMenu() {
   on('diff', difficulty); on('mode', sel.mode); on('min', sel.min);
   document.getElementById('timeRow').classList.toggle('invisible', sel.mode !== 'timed');
   const b = best[keyFor(sel.mode, sel.min * 60, difficulty)] || 0;
-  document.getElementById('bestSel').textContent = (sel.mode === 'timed' ? sel.min + ' min' : 'Endless') + ' · ' + difficulty[0].toUpperCase() + difficulty.slice(1) + ' · Best ' + b;
+  document.getElementById('bestSel').textContent = labelFor(sel.mode, sel.min * 60, difficulty) + ' · Best ' + b;
+}
+
+// ---------------------------------------------------------------- cloud: Google sign-in + leaderboard
+// window.Cloud comes from the firebase module at the end of the page
+const BOARD_PREFIX = 'sm_';
+const VALID_KEYS = new Set();
+for (const d in DIFFICULTY) for (const t of ['timed60', 'timed120', 'timed180', 'endless']) VALID_KEYS.add(t + DIFFICULTY[d].best);
+let user = null, boardFrom = 'menu';
+
+// public name on the leaderboard: first name + last initial
+function shortName(u) {
+  const p = (u.displayName || 'Player').trim().split(/\s+/);
+  return (p[0] + (p[1] ? ' ' + p[1][0] + '.' : '')).slice(0, 24);
+}
+
+function refreshAcct() {
+  document.getElementById('acctBtn').textContent = user ? shortName(user) + ' · Sign out' : 'Sign in with Google';
+}
+
+window.onCloudUser = async u => {
+  user = u; refreshAcct();
+  if (!u) return;
+  try {
+    // keep the higher score per key, then push anything the cloud doesn't have yet
+    const remote = await Cloud.loadBest(u.uid);
+    for (const k in remote) if (VALID_KEYS.has(k) && remote[k] > (best[k] || 0)) best[k] = remote[k];
+    saveBestLocal(); refreshMenu();
+    for (const k of VALID_KEYS) if ((best[k] || 0) > (remote[k] || 0)) cloudSubmit(k);
+  } catch (e) { console.warn('cloud load failed', e); }
+};
+
+function cloudSubmit(key) {
+  if (!user || !window.Cloud) return;
+  Cloud.saveBest(user.uid, key, best[key]).catch(e => console.warn('save failed', e));
+  Cloud.submit(BOARD_PREFIX + key, user.uid, shortName(user), best[key]).catch(e => console.warn('submit failed', e));
+}
+
+async function signInOut() {
+  if (!window.Cloud) { alert('Online features are not available right now.'); return; }
+  if (user) { if (confirm('Sign out? Your scores stay saved in your account.')) Cloud.signOut(); return; }
+  try { await Cloud.signIn(); }
+  catch (e) {
+    if (e.code === 'auth/unauthorized-domain') alert('Sign-in only works on pkrig.com/games/star-merge');
+    else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') alert('Sign-in failed: ' + (e.code || e.message));
+  }
+}
+
+async function openBoard() {
+  const fromOver = state === 'over';
+  boardFrom = fromOver ? 'over' : 'menu';
+  const key = fromOver ? bestKey() : keyFor(sel.mode, sel.min * 60, difficulty);
+  document.getElementById('boardSub').textContent = fromOver ? labelFor(mode, startTime, difficulty) : labelFor(sel.mode, sel.min * 60, difficulty);
+  const list = document.getElementById('boardList');
+  const note = txt => { list.innerHTML = ''; const li = document.createElement('li'); li.textContent = txt; list.appendChild(li); };
+  note('Loading…');
+  showOverlay('board');
+  if (!window.Cloud) { note('Leaderboard is offline.'); return; }
+  try {
+    const rows = await Cloud.top(BOARD_PREFIX + key);
+    if (!rows.length) { note(user ? 'No scores yet — be the first!' : 'No scores yet. Sign in to be the first!'); return; }
+    list.innerHTML = '';
+    rows.forEach((r, i) => {
+      const li = document.createElement('li');
+      if (user && r.uid === user.uid) li.className = 'me';
+      for (const [cls, t] of [['rk', i + 1], ['nm', r.name], ['sc', r.score]]) {
+        const s = document.createElement('span'); s.className = cls; s.textContent = t; li.appendChild(s);
+      }
+      list.appendChild(li);
+    });
+    if (!user) { const li = document.createElement('li'); li.textContent = 'Sign in to get on the board.'; li.style.opacity = .7; list.appendChild(li); }
+  } catch (e) { console.warn(e); note('Could not load the leaderboard.'); }
 }
 
 function syncToggles() {
@@ -716,6 +813,9 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
   else if (act === 'diff') { setDifficulty(btn.dataset.diff); refreshMenu(); }
   else if (act === 'music') setMusic(!A.musicOn);
   else if (act === 'sfx') setSfx(!A.sfxOn);
+  else if (act === 'signin') signInOut();
+  else if (act === 'board') openBoard();
+  else if (act === 'boardBack') showOverlay(boardFrom);
   SFX.click();
 }));
 
@@ -747,6 +847,43 @@ if (demo) {
   for (let i = 0; i < ff * 60 && state === 'play'; i++) update();
 }
 requestAnimationFrame(frame);
+</script>
+<script type="module">
+// Firebase project pkrig-games. These keys are public by design; access is limited by firestore.rules.
+const V = 'https://www.gstatic.com/firebasejs/10.12.2/';
+try {
+  const { initializeApp } = await import(V + 'firebase-app.js');
+  const { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } = await import(V + 'firebase-auth.js');
+  const { getFirestore, doc, getDoc, setDoc, collection, query, orderBy, limit, getDocs } = await import(V + 'firebase-firestore.js');
+  const app = initializeApp({
+    apiKey: 'AIzaSyDxhqPV_ZioIawO7K3NZkSLOJ3sGPZF2rQ',
+    authDomain: 'pkrig-games.firebaseapp.com',
+    projectId: 'pkrig-games',
+    storageBucket: 'pkrig-games.firebasestorage.app',
+    messagingSenderId: '101640624356',
+    appId: '1:101640624356:web:82bf674ebf21652fe6f4f1',
+  });
+  const auth = getAuth(app), db = getFirestore(app);
+  window.Cloud = {
+    async signIn() {
+      const p = new GoogleAuthProvider();
+      try { await signInWithPopup(auth, p); }
+      catch (e) {
+        if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') await signInWithRedirect(auth, p);
+        else throw e;
+      }
+    },
+    signOut: () => signOut(auth),
+    // players/{uid}: { best: { <key>: score } }, private to the player
+    loadBest: async uid => (await getDoc(doc(db, 'players', uid))).data()?.best || {},
+    saveBest: (uid, key, score) => setDoc(doc(db, 'players', uid), { best: { [key]: score } }, { merge: true }),
+    // boards/{game_key}/entries/{uid}: { name, score, at }, public read
+    submit: (board, uid, name, score) => setDoc(doc(db, 'boards', board, 'entries', uid), { name, score, at: Date.now() }),
+    top: async board => (await getDocs(query(collection(db, 'boards', board, 'entries'), orderBy('score', 'desc'), limit(10))))
+      .docs.map(d => ({ uid: d.id, ...d.data() })),
+  };
+  onAuthStateChanged(auth, u => window.onCloudUser(u));
+} catch (e) { console.warn('firebase unavailable', e); }
 </script>
 </body>
 </html>

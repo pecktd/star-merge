@@ -1,0 +1,33 @@
+rules_version = '2';
+// Firebase project pkrig-games. Paste into Console > Firestore Database > Rules and Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // players/{uid}: { best: { <key>: score } }, private to the signed-in player
+    match /players/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['best'])
+        && request.resource.data.best is map;
+    }
+
+    // boards/{game_key}/entries/{uid}: { name, score, at }, public leaderboard
+    // game_key is <game>_<mode><secs>_<difficulty>, e.g. sm_timed60_hard
+    match /boards/{board}/entries/{uid} {
+      allow read: if true;
+      allow create: if validEntry(board, uid);
+      allow update: if validEntry(board, uid) && request.resource.data.score > resource.data.score;
+      allow delete: if false;
+    }
+
+    function validEntry(board, uid) {
+      let d = request.resource.data;
+      return request.auth != null && request.auth.uid == uid
+        && board.matches('^(sm|jm)_[a-z0-9_]{1,30}$')
+        && d.keys().hasOnly(['name', 'score', 'at'])
+        && d.score is int && d.score >= 0 && d.score <= 1000000
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 24
+        && d.at is int;
+    }
+  }
+}
