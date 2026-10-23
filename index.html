@@ -599,6 +599,13 @@ function render() {
   if (bgImg.complete && bgImg.naturalWidth) ctx.drawImage(bgImg, BOX.l, BOX.t, BOX.r - BOX.l, BOX.b - BOX.t);
   else { ctx.fillStyle = '#120c34'; ctx.fillRect(BOX.l, BOX.t, BOX.r - BOX.l, BOX.b - BOX.t); }
 
+  // biggest body reached so far, drawn under the pieces so it never hides them
+  if (state !== 'menu') {
+    text('BIGGEST', BOX.l + 12, BOX.t + 16, 13, '#8f88ff', 'left', null);
+    drawBody(maxLvl, BOX.l + 24, BOX.t + 40, 11);
+    text(BODIES[maxLvl].name, BOX.l + 42, BOX.t + 41, 22, '#ffd666', 'left');
+  }
+
   const warn = dangerT > 0;
   ctx.fillStyle = warn ? (Math.sin(clock * 20) > 0 ? '#ff4040' : '#7a1020') : 'rgba(159,240,255,.45)';
   for (let x = BOX.l; x < BOX.r; x += 18) ctx.fillRect(x, DANGER_Y - 1, 10, 3);
