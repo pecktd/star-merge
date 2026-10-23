@@ -102,7 +102,7 @@ const W = 540, H = 960, TAU = Math.PI * 2;
 const BOX = { l: 16, r: 524, t: 158, b: 944 };
 const DROP_Y = 200, DANGER_Y = 244;
 const GRAV = 2100, SUB = 8, DT = 1 / 60;
-const DROP_COOLDOWN = .18, DROP_SPEED = 650;   // seconds between drops; initial fall speed px/s
+const DROP_COOLDOWN = .18;   // seconds before the next piece is ready
 const TIME_OPTIONS = [60, 120, 180];   // timed-mode starting clock, seconds
 const SPRITE_SIZE = 64, SPRITE_BODY_R = 22;   // see tools/make_sprites.py
 
@@ -319,7 +319,10 @@ function drop() {
   if (state !== 'play') return;
   if (cooldown > 0 || heldLvl < 0) { queued = true; return; }   // remember taps made while reloading
   const r = BODIES[heldLvl].r;
-  spawn(Math.max(BOX.l + r, Math.min(BOX.r - r, aimX)), DROP_Y, heldLvl, 0, DROP_SPEED * DT / SUB);
+  const x = Math.max(BOX.l + r, Math.min(BOX.r - r, aimX));
+  // the previous piece may still be in the drop spot; wait for it instead of overlapping
+  if (bodies.some(b => Math.hypot(b.x - x, b.y - DROP_Y) < b.r + r)) { queued = true; return; }
+  spawn(x, DROP_Y, heldLvl);
   heldLvl = -1; cooldown = DROP_COOLDOWN;
   SFX.drop();
 }
@@ -438,7 +441,8 @@ function update() {
     if (danger && Math.floor(clock * 2) !== Math.floor((clock - DT) * 2)) SFX.warn();
     if (dangerT > 3) gameOver('OVERFLOW!');
 
-    if (cooldown > 0) { cooldown -= DT; if (cooldown <= 0) { heldLvl = nextLvl; nextLvl = randDrop(); if (queued) { queued = false; drop(); } } }
+    if (cooldown > 0) { cooldown -= DT; if (cooldown <= 0) { heldLvl = nextLvl; nextLvl = randDrop(); } }
+    if (queued && cooldown <= 0) { queued = false; drop(); }
 
     if (mode === 'timed') {
       timeLeft -= DT;
