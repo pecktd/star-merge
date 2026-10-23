@@ -81,7 +81,7 @@
           <button class="btn tog" data-act="min" data-min="3">3 min</button>
         </div>
         </div>
-        <button class="btn gold" data-act="start" style="margin-top:calc(var(--u)*18)">START<small id="bestSel">Best 0</small></button>
+        <button class="btn gold" data-act="start" style="margin-top:calc(var(--u)*18)"><span id="startLbl">START</span><small id="bestSel">Best 0</small></button>
         <div class="row">
           <button class="btn tog" data-act="music" id="tMusic1">♪ Music</button>
           <button class="btn tog" data-act="sfx" id="tSfx1">🔊 Sound</button>
@@ -723,6 +723,9 @@ function refreshMenu() {
   document.getElementById('timeRow').classList.toggle('invisible', sel.mode !== 'timed');
   const b = best[keyFor(sel.mode, sel.min * 60, difficulty)] || 0;
   document.getElementById('bestSel').textContent = labelFor(sel.mode, sel.min * 60, difficulty) + ' · Best ' + b;
+  // players must be signed in to play
+  document.getElementById('startLbl').textContent = user ? 'START' : 'SIGN IN TO PLAY';
+  if (!user) document.getElementById('bestSel').textContent = 'with your Google account';
 }
 
 // ---------------------------------------------------------------- cloud: Google sign-in + leaderboard
@@ -739,6 +742,7 @@ function shortName(u) {
 }
 
 function refreshAcct() {
+  refreshMenu();
   document.getElementById('acctBtn').textContent = user ? shortName(user) + ' · Sign out' : 'Sign in with Google';
 }
 
@@ -806,7 +810,7 @@ function syncToggles() {
 document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('click', () => {
   audioInit();
   const act = btn.dataset.act;
-  if (act === 'start') newGame(sel.mode, sel.min * 60);
+  if (act === 'start') { if (user) newGame(sel.mode, sel.min * 60); else signInOut(); }
   else if (act === 'mode') { sel.mode = btn.dataset.mode; saveSel(); refreshMenu(); }
   else if (act === 'min') { sel.min = +btn.dataset.min; saveSel(); refreshMenu(); }
   else if (act === 'restart') newGame();
