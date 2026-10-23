@@ -544,30 +544,39 @@ def draw_text(arr, s, x, y, sc, color, shadow=(20, 14, 40)):
 
 
 # ------------------------------------------------------------------ background
-def starfield(w, h, seed, nebula=True):
+def starfield(w, h, seed, nebula=True, calm=False):
+    """Space backdrop; `calm` keeps it quiet so it never competes with the bodies."""
     rs = np.random.default_rng(seed)
     yy, xx = np.mgrid[0:h, 0:w].astype(float)
     dth = BAYER[yy.astype(int) % 4, xx.astype(int) % 4]
     t = yy / h
-    sky = pal('#07051a', '#0d0a2a', '#150f3c', '#1d1450')
+    sky = pal('#07051a', '#0a0822', '#0d0a2a', '#100c32') if calm else pal('#07051a', '#0d0a2a', '#150f3c', '#1d1450')
     img = sky[np.clip(np.floor(t * 3.2 + dth * .999), 0, 3).astype(int)]
     if nebula:
         n = fbm((xx / 60, yy / 60, np.zeros_like(xx) + .5), 1.0, 5, seed + 1)
         n2 = fbm((xx / 45, yy / 45, np.zeros_like(xx) + 3.5), 1.0, 4, seed + 2)
         lvl = np.floor((n - .54) * 8 + dth * .999)
         neb = pal('#1c1248', '#281858', '#352066', '#442873')
+        if calm:
+            lvl = np.floor((n - .58) * 5 + dth * .999)
+            neb = pal('#110c30', '#150f38', '#191240', '#1c1446')
         m = lvl >= 0
         img[m] = neb[np.clip(lvl[m].astype(int), 0, 3)]
         lvl2 = np.floor((n2 - .6) * 8 + dth * .999)
         neb2 = pal('#11294a', '#173a5a', '#1e4b68')
+        if calm:
+            lvl2 = np.floor((n2 - .64) * 5 + dth * .999)
+            neb2 = pal('#0c1634', '#0f1c3c', '#122242')
         m2 = lvl2 >= 0
         img[m2] = neb2[np.clip(lvl2[m2].astype(int), 0, 2)]
     out = (img * 255).astype(np.uint8)
     cols = [(255, 255, 255), (190, 210, 255), (255, 236, 180), (255, 190, 190)]
-    for _ in range(int(w * h / 55)):
+    if calm:
+        cols = [(150, 150, 190), (120, 135, 180), (165, 155, 135), (95, 95, 140)]
+    for _ in range(int(w * h / (160 if calm else 55))):
         x, y = rs.integers(0, w), rs.integers(0, h)
-        out[y, x] = cols[rs.integers(0, 4)] if rs.random() < .6 else (140, 140, 190)
-    for _ in range(int(w * h / 1600)):
+        out[y, x] = cols[rs.integers(0, 4)] if rs.random() < .6 else (140, 140, 190) if not calm else (70, 70, 110)
+    for _ in range(0 if calm else int(w * h / 1600)):
         x, y = rs.integers(2, w - 2), rs.integers(2, h - 2)
         c = cols[rs.integers(0, 3)]
         out[y, x] = c
@@ -617,7 +626,7 @@ def main():
     Image.fromarray(sheet).save(os.path.join(OUT, 'sheet.png'))
     print('wrote sheet.png')
 
-    Image.fromarray(starfield(170, 262, 3)).save(os.path.join(OUT, 'bg.png'))
+    Image.fromarray(starfield(170, 262, 3, calm=True)).save(os.path.join(OUT, 'bg.png'))
     print('wrote bg.png')
 
 
