@@ -526,12 +526,19 @@ function update() {
   if (flash > 0) flash -= DT;
 }
 
+// save the current score if it beats the best; also used when a game is quit or the page is hidden
+function recordScore() {
+  const key = bestKey();
+  if (score <= (best[key] || 0)) return false;
+  best[key] = score; saveBestLocal(); cloudSubmit(key);
+  return true;
+}
+
 function gameOver(reason) {
   if (state !== 'play') return;
   state = 'over'; overDelay = 1;
   SFX.over();
-  const key = bestKey(), isBest = score > (best[key] || 0);
-  if (isBest) { best[key] = score; saveBestLocal(); cloudSubmit(key); }
+  const key = bestKey(), isBest = recordScore();
   document.getElementById('overTitle').textContent = reason;
   document.getElementById('overScore').textContent = score;
   document.getElementById('overBest').textContent = isBest ? '★ New best! ★' : 'Best ' + best[key];
@@ -813,9 +820,9 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
   if (act === 'start') { if (user) newGame(sel.mode, sel.min * 60); else signInOut(); }
   else if (act === 'mode') { sel.mode = btn.dataset.mode; saveSel(); refreshMenu(); }
   else if (act === 'min') { sel.min = +btn.dataset.min; saveSel(); refreshMenu(); }
-  else if (act === 'restart') newGame();
+  else if (act === 'restart') { if (state === 'pause') recordScore(); newGame(); }
   else if (act === 'resume') resumeGame();
-  else if (act === 'menu') { state = 'menu'; bodies = []; showOverlay('menu'); }
+  else if (act === 'menu') { if (state === 'pause') recordScore(); state = 'menu'; bodies = []; showOverlay('menu'); }
   else if (act === 'diff') { setDifficulty(btn.dataset.diff); refreshMenu(); }
   else if (act === 'music') setMusic(!A.musicOn);
   else if (act === 'sfx') setSfx(!A.sfxOn);
@@ -826,7 +833,7 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
 }));
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { pauseGame(); if (A.ctx) A.ctx.suspend(); }
+  if (document.hidden) { pauseGame(); if (state === 'pause') recordScore(); if (A.ctx) A.ctx.suspend(); }
   else if (A.ctx) A.ctx.resume();
 });
 
