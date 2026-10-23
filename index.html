@@ -239,20 +239,29 @@ function note(m, t, dur, type, vol) {
   o.start(t); o.stop(t + dur + .05);
 }
 
+const isHurry = () => state === 'play' && mode === 'timed' && timeLeft <= 10;
+
 function musicTick() {
   if (!A.ctx || A.ctx.state !== 'running') return;
   const now = A.ctx.currentTime;
   if (A.next < now) A.next = now + .05;
   while (A.next < now + .25) {
     const i = A.step, t = A.next, ch = CHORDS[Math.floor(i / 8) % 4];
-    if (A.musicOn) {
+    const hurry = isHurry(), step = hurry ? STEP * .7 : STEP;
+    if (A.musicOn && hurry) {
+      // last 10 seconds: faster, octave-jumping bass, melody up an octave, beat on every step
+      note(ch[0] - (i % 2 ? 0 : 12), t, step * .9, 'triangle', .6);
+      if (MEL[i]) note(MEL[i] + 12, t, step * .8, 'square', .08);
+      noiseBurst(.03, i % 2 ? .06 : .1, 7000, 0, A.mus, t);
+      if (i % 4 === 2) noiseBurst(.08, .2, 1800, 0, A.mus, t);
+    } else if (A.musicOn) {
       if (i % 2 === 0) note(ch[0] - 12, t, STEP * 1.6, 'triangle', .6);
       if (MEL[i]) note(MEL[i], t, STEP * (i >= 32 ? 1.8 : .9), 'square', i >= 32 ? .16 : .1);
       if (i % 4 === 2) noiseBurst(.04, .12, 7000, 0, A.mus, t);
       if (i % 8 === 4) noiseBurst(.08, .18, 1800, 0, A.mus, t);
     }
     A.step = (A.step + 1) % MEL.length;
-    A.next += STEP;
+    A.next += step;
   }
 }
 
