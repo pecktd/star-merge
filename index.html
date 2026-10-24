@@ -56,6 +56,10 @@
     border: calc(var(--u) * 3) solid #6a5cff; border-radius: calc(var(--u) * 6); outline: none;
     user-select: text; -webkit-user-select: text; touch-action: manipulation; }
   .name:focus { border-color: #ffd666; }
+  .btn.purple { background: #8a4fe0; box-shadow: 0 calc(var(--u) * 6) 0 #4b2394; }
+  .btn.purple:active { box-shadow: 0 calc(var(--u) * 2) 0 #4b2394; }
+  .code { font-size: calc(var(--u) * 50); font-weight: 700; letter-spacing: .15em; color: #ffd666; margin: calc(var(--u) * 4) 0;
+    text-shadow: calc(var(--u) * 3) calc(var(--u) * 3) 0 #b8501a; }
 </style>
 </head>
 <body>
@@ -86,7 +90,10 @@
           <button class="btn tog" data-act="min" data-min="3">3 min</button>
         </div>
         </div>
-        <button class="btn gold" data-act="start" style="margin-top:calc(var(--u)*18)"><span id="startLbl">START</span><small id="bestSel">Best 0</small></button>
+        <div class="row" style="margin-top:calc(var(--u)*18)">
+          <button class="btn gold" data-act="start" style="flex:2;margin:0"><span id="startLbl">START</span><small id="bestSel">Best 0</small></button>
+          <button class="btn purple" data-act="battle" style="flex:1;margin:0">BATTLE<small>2 players</small></button>
+        </div>
         <div class="row">
           <button class="btn tog" data-act="music" id="tMusic1">♪ Music</button>
           <button class="btn tog" data-act="sfx" id="tSfx1">🔊 Sound</button>
@@ -119,11 +126,30 @@
       </div>
     </div>
 
+    <div id="lobby" class="ov hidden">
+      <div class="card">
+        <h2>BATTLE</h2>
+        <p class="sub">Play a friend online. Every merge from Mercury up drops asteroids into their box. Asteroids can't merge: make a merge right next to one to smash it!</p>
+        <input class="name" id="lobbyName" maxlength="16" placeholder="Your name" autocomplete="nickname">
+        <div id="lobbyForm">
+          <button class="btn purple" data-act="host">Create room</button>
+          <p class="label">or join a friend's room</p>
+          <div class="row">
+            <input class="name" id="pcode" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false" style="flex:1;text-transform:uppercase;margin:calc(var(--u)*6) 0">
+            <button class="btn" data-act="join" style="flex:1;margin:calc(var(--u)*6) 0">Join</button>
+          </div>
+        </div>
+        <div class="code hidden" id="roomCode"></div>
+        <p class="sub" id="lobbyMsg"></p>
+        <button class="btn tog" data-act="leave" style="width:100%">Back</button>
+      </div>
+    </div>
+
     <div id="pause" class="ov hidden">
       <div class="card">
-        <h2>PAUSED</h2>
+        <h2 id="pauseTitle">PAUSED</h2>
         <button class="btn" data-act="resume">Resume</button>
-        <button class="btn gold" data-act="restart">Restart</button>
+        <button class="btn gold" data-act="restart" id="restartBtn">Restart</button>
         <div class="row">
           <button class="btn tog" data-act="music" id="tMusic2">♪ Music</button>
           <button class="btn tog" data-act="sfx" id="tSfx2">🔊 Sound</button>
@@ -139,10 +165,10 @@
         <div class="big" id="overScore">0</div>
         <p class="sub" id="overBest">Best 0</p>
         <p class="sub" id="overBiggest">Biggest: Ceres</p>
-        <button class="btn gold" data-act="restart">Play again</button>
+        <button class="btn gold" data-act="restart" id="againBtn">Play again</button>
         <div class="row">
           <button class="btn tog" data-act="menu">Main menu</button>
-          <button class="btn tog" data-act="board">🏆 Top 10</button>
+          <button class="btn tog" data-act="board" id="overBoardBtn">🏆 Top 10</button>
         </div>
       </div>
     </div>
@@ -176,12 +202,16 @@ const MAX_LVL = BODIES.length - 1;
 // size multiplier for every piece; `best` keeps score keys from when easy was 1x and hard 1.4x
 const DIFFICULTY = { easy: { k: 1.2, best: '_normal' }, normal: { k: 1.4, best: '_hard' }, hard: { k: 1.6, best: '_hard16' } };
 for (const f of BODIES) f.r0 = f.r;
-let difficulty = 'normal';
-try { const d = localStorage.getItem('sm_diff'); if (DIFFICULTY[d]) difficulty = d; } catch (e) {}
+// a battle plays at the host's difficulty without saving it, so this restores your own afterwards
+function savedDifficulty() {
+  try { const d = localStorage.getItem('sm_diff'); if (DIFFICULTY[d]) return d; } catch (e) {}
+  return 'normal';
+}
+let difficulty = savedDifficulty();
 
-function setDifficulty(d) {
+function setDifficulty(d, save = true) {
   difficulty = d;
-  try { localStorage.setItem('sm_diff', d); } catch (e) {}
+  if (save) try { localStorage.setItem('sm_diff', d); } catch (e) {}
   for (const f of BODIES) f.r = f.r0 * DIFFICULTY[d].k;
 }
 // held pieces sit lower when they are big, so they never poke into the HUD
@@ -284,6 +314,9 @@ const SFX = {
   warn() { blip(440, 420, .09, 'square', .06); },
   over() { [523, 415, 330, 262, 196].forEach((f, i) => blip(f, f * .97, .22, 'square', .12, i * .15)); },
   click() { blip(1000, 700, .04, 'square', .07); },
+  send() { blip(400, 1600, .14, 'square', .08); blip(800, 2400, .1, 'square', .06, .05); },
+  thud() { blip(200, 70, .1, 'triangle', .35); noiseBurst(.08, .12, 400); },
+  smash() { noiseBurst(.2, .3, 800); noiseBurst(.1, .2, 2400, .03); blip(160, 50, .16, 'square', .12); },
 };
 
 // chiptune loop in A minor: Am F C G
@@ -347,11 +380,13 @@ function setSfx(on) {
 
 // ---------------------------------------------------------------- game state
 let state = 'menu';          // menu | play | pause | over
-let mode = 'timed';          // timed | endless
+let mode = 'timed';          // timed | endless | battle
 let bodies = [], particles = [], popups = [];
 let startTime = 60, score = 0, timeLeft = startTime, maxLvl = 0, combo = 0, lastMerge = -9, clock = 0;
 let heldLvl = 0, nextLvl = 0, cooldown = 0, queued = false, aimX = W / 2, aiming = false;
 let dangerT = 0, shake = 0, lastTickSec = 99, overDelay = 0, flash = 0;
+// battle: asteroids the opponent sent that have not landed yet, and their latest board
+let garbage = 0, garbageT = 0, countdown = 0, opp = { bodies: [], score: 0, maxLvl: 0, garbage: 0 };
 let best = { timed60: 0, timed120: 0, timed180: 0, endless: 0 };
 try { best = Object.assign(best, JSON.parse(localStorage.getItem('sm_best') || '{}')); } catch (e) {}
 if (best.timed && !best.timed60) best.timed60 = best.timed;   // scores saved before the 1/2/3 min choice
@@ -379,6 +414,8 @@ function newGame(m, secs) {
   score = 0; timeLeft = startTime; maxLvl = 0; combo = 0; lastMerge = -9;
   heldLvl = randDrop(); nextLvl = randDrop(); cooldown = 0; queued = false;
   dangerT = 0; shake = 0; lastTickSec = 99; flash = 0;
+  garbage = 0; garbageT = 0; countdown = mode === 'battle' ? 3 : 0;
+  opp = { bodies: [], score: 0, maxLvl: 0, garbage: 0 };
   state = 'play';
   showOverlay(null);
 }
@@ -391,7 +428,7 @@ function spawn(x, y, lvl, vx = 0, vy = 0, grow = false) {
 }
 
 function drop() {
-  if (state !== 'play') return;
+  if (state !== 'play' || countdown > 0) return;
   if (cooldown > 0 || heldLvl < 0) { queued = true; return; }   // remember taps made while reloading
   const r = BODIES[heldLvl].r;
   const x = Math.max(BOX.l + r, Math.min(BOX.r - r, aimX));
@@ -404,6 +441,7 @@ function drop() {
 
 function merge(a, o) {
   a.dead = o.dead = true;
+  smashRocks(a, o);
   const x = (a.x + o.x) / 2, y = (a.y + o.y) / 2;
   const vx = ((a.x - a.px) + (o.x - o.px)) / 2, vy = ((a.y - a.py) + (o.y - o.py)) / 2;
   combo = clock - lastMerge < 1.1 ? combo + 1 : 1;
@@ -419,9 +457,11 @@ function merge(a, o) {
     popup(W / 2, 420, 'SINGULARITY!', '#ffd666', 48);
     shake = 20; flash = .5;
     SFX.mega();
+    attack(8);
     return;
   }
   const lvl = a.lvl + 1;
+  attack(attackFor(lvl, combo));
   spawn(x, y, lvl, vx, vy, true);
   const pts = Math.round(lvl * (lvl + 1) * mult);
   score += pts;
@@ -442,6 +482,232 @@ function merge(a, o) {
 function addTime(s, x, y) {
   timeLeft = Math.min(startTime * 2, timeLeft + s);
   popup(x, y + 18, '+' + s + 's', '#9ff0ff', 20);
+}
+
+// ---------------------------------------------------------------- battle
+const GARBAGE_DELAY = 1.4;   // warning time before sent asteroids start falling
+const GARBAGE_MAX = 24;
+const ROCK = -1, ROCK_REACH = 6;
+
+// asteroids sent to the opponent for making `lvl`: Mercury to Venus send 1, then +1 every three levels; combos add more
+const attackFor = (lvl, combo) => lvl < 3 ? 0 : Math.floor(lvl / 3) + Math.floor((combo - 1) / 2);
+
+function attack(n) {
+  if (mode !== 'battle' || n <= 0) return;
+  // asteroids on their way to you are cancelled first
+  const blocked = Math.min(garbage, n);
+  if (blocked) { garbage -= blocked; n -= blocked; popup(W / 2, 330, 'BLOCKED ' + blocked + '!', '#9ff0ff', 28); }
+  if (n <= 0) return;
+  send({ t: 'atk', n });
+  popup(W / 2, 300, 'SENT ' + n + ' TO ' + net.oppName.toUpperCase() + '!', '#e0a8ff', 26);
+  SFX.send();
+}
+
+function receiveAttack(n) {
+  if (state !== 'play') return;
+  if (garbage === 0) garbageT = GARBAGE_DELAY;
+  garbage = Math.min(GARBAGE_MAX, garbage + n);
+  SFX.warn();
+}
+
+function updateGarbage() {
+  if (garbage <= 0 || countdown > 0) return;
+  garbageT -= DT;
+  if (garbageT > 0) return;
+  // an asteroid about Pluto to Mercury size from a random spot along the top, one at a time so they don't stack up
+  const r = BODIES[1].r + Math.random() * (BODIES[3].r - BODIES[1].r);
+  const x = BOX.l + r + Math.random() * (BOX.r - BOX.l - 2 * r);
+  const b = spawn(x, BOX.t + r + 2, 0, (Math.random() - .5) * 3, 2);
+  b.lvl = ROCK; b.r = b.tr = r;
+  garbage--; garbageT = .09;
+  SFX.thud();
+}
+
+// asteroids touching either of the two merging bodies break apart
+function smashRocks(a, o) {
+  for (const b of bodies) {
+    if (b.lvl !== ROCK || b.dead) continue;
+    if (Math.hypot(b.x - a.x, b.y - a.y) > b.r + a.r + ROCK_REACH && Math.hypot(b.x - o.x, b.y - o.y) > b.r + o.r + ROCK_REACH) continue;
+    b.dead = true;
+    score += 10;
+    rockBurst(b.x, b.y, b.r);
+    popup(b.x, b.y, 'SMASH! +10', '#e8ecf2', 24);
+    SFX.smash();
+  }
+}
+
+// ---------------------------------------------------------------- network
+// Peer-to-peer over WebRTC using PeerJS and its free public broker, so the game stays a static page.
+// The host's peer id is built from a short room code that the other player types in.
+const PEER_LIB = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+const PEER_PREFIX = 'starmerge-v1-';
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+let net = null;   // { peer, conn, host, code, oppName, myReady, oppReady }
+let netTick = 0;
+
+function loadPeer() {
+  if (window.Peer) return Promise.resolve();
+  return new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = PEER_LIB; s.onload = ok; s.onerror = () => fail(new Error('Could not load the network library. Are you online?'));
+    document.head.appendChild(s);
+  });
+}
+
+function openLobby() {
+  const inp = document.getElementById('lobbyName');
+  inp.value = playerName(); inp.disabled = isGoogle();   // Google players battle under their account name
+  showOverlay('lobby');
+  lobbyMsg('Create a room and share its code, or type a friend’s code.');
+}
+
+function lobbyMsg(msg, code) {
+  document.getElementById('lobbyMsg').textContent = msg;
+  const c = document.getElementById('roomCode');
+  c.textContent = code || ''; c.classList.toggle('hidden', !code);
+  document.getElementById('lobbyForm').classList.toggle('hidden', !!net);
+}
+
+// guests type a name here like on the Who's playing screen
+function lobbyName() {
+  if (isGoogle()) return true;
+  const n = document.getElementById('lobbyName').value.trim().replace(/\s+/g, ' ').slice(0, 16);
+  if (!n) { lobbyMsg('Type your name first.'); document.getElementById('lobbyName').focus(); return false; }
+  guestName = n;
+  try { localStorage.setItem('sm_name', n); } catch (e) {}
+  refreshAcct();
+  ensureGuestAuth();
+  return true;
+}
+
+async function hostRoom() {
+  if (!lobbyName()) return;
+  const code = Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  net = { host: true, code, oppName: 'Opponent', myReady: false, oppReady: false };
+  lobbyMsg('Connecting…');
+  try { await loadPeer(); } catch (e) { closeNet(); lobbyMsg(e.message); return; }
+  if (!net || net.code !== code) return;   // backed out while loading
+  const peer = net.peer = new Peer(PEER_PREFIX + code);
+  peer.on('open', () => lobbyMsg('Send this code to your friend. Waiting for them to join…', code));
+  peer.on('connection', c => { if (net && !net.conn) attachConn(c); else c.close(); });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') { closeNet(); hostRoom(); return; }   // code already in use: pick another
+    if (net && net.conn) return;
+    closeNet(); lobbyMsg('Network error: ' + e.type);
+  });
+}
+
+async function joinRoom() {
+  if (!lobbyName()) return;
+  const code = document.getElementById('pcode').value.trim().toUpperCase();
+  if (code.length !== 4) { lobbyMsg('Enter the 4-letter code from your friend.'); return; }
+  net = { host: false, code, oppName: 'Opponent', myReady: false, oppReady: false };
+  lobbyMsg('Joining room ' + code + '…');
+  try { await loadPeer(); } catch (e) { closeNet(); lobbyMsg(e.message); return; }
+  if (!net || net.code !== code) return;
+  const peer = net.peer = new Peer();
+  peer.on('open', () => attachConn(peer.connect(PEER_PREFIX + code, { reliable: true })));
+  peer.on('error', e => {
+    if (net && net.conn && net.conn.open) return;
+    closeNet();
+    lobbyMsg(e.type === 'peer-unavailable' ? 'No room with code ' + code + '. Check the code and try again.' : 'Network error: ' + e.type);
+  });
+}
+
+function attachConn(c) {
+  net.conn = c;
+  c.on('open', () => send({ t: 'hello', name: playerName() }));
+  c.on('data', onNet);
+  c.on('close', onDisconnect);
+  c.on('error', onDisconnect);
+}
+
+function send(msg) {
+  if (net && net.conn && net.conn.open) try { net.conn.send(msg); } catch (e) {}
+}
+
+function startBattle(diff) {
+  net.myReady = net.oppReady = false;
+  setDifficulty(diff, false);   // both players use the host's difficulty
+  newGame('battle');
+}
+
+// host starts a match once both players are in (first join, or both asked for a rematch)
+function hostMaybeStart() {
+  if (!net || !net.host || !net.conn) return;
+  if (state === 'menu' || (net.myReady && net.oppReady)) { send({ t: 'start', diff: difficulty }); startBattle(difficulty); }
+}
+
+function onNet(m) {
+  if (!net || !m || typeof m !== 'object') return;
+  if (m.t === 'hello') {
+    net.oppName = String(m.name || 'Opponent').slice(0, 16);
+    lobbyMsg('Connected to ' + net.oppName + '!');
+    hostMaybeStart();
+  } else if (m.t === 'start' && !net.host && DIFFICULTY[m.diff]) startBattle(m.diff);
+  else if (m.t === 'atk') receiveAttack(Math.max(0, Math.min(GARBAGE_MAX, m.n | 0)));
+  else if (m.t === 's') opp = { bodies: Array.isArray(m.b) ? m.b : [], score: m.sc | 0, maxLvl: Math.min(MAX_LVL, m.mx | 0), garbage: m.g | 0 };
+  else if (m.t === 'lose') { if (state === 'play' && mode === 'battle') battleOver(true, m.why === 'quit' ? net.oppName + ' quit' : net.oppName + ' overflowed!'); }
+  else if (m.t === 'again') { net.oppReady = true; syncAgain(); hostMaybeStart(); }
+}
+
+function onDisconnect() {
+  if (!net) return;
+  const name = net.oppName;
+  closeNet();
+  if (mode === 'battle' && state === 'play') battleOver(true, name + ' left');
+  else if (mode === 'battle' && state === 'over') syncAgain(name + ' left');
+  else if (!document.getElementById('lobby').classList.contains('hidden')) lobbyMsg(name + ' left the room.');
+}
+
+function closeNet() {
+  if (!net) return;
+  const n = net; net = null;
+  try { if (n.conn) n.conn.close(); } catch (e) {}
+  // give the close a moment to reach the other side before tearing down the peer
+  setTimeout(() => { try { if (n.peer) n.peer.destroy(); } catch (e) {} }, 300);
+}
+
+function leaveBattle() {
+  if (net && state === 'play' && mode === 'battle') send({ t: 'lose', why: 'quit' });
+  closeNet();
+}
+
+function sendSnapshot(now) {
+  if (mode !== 'battle' || !net || (++netTick % 6 && !now)) return;   // 10 times a second
+  send({ t: 's', sc: score, mx: maxLvl, g: garbage,
+    b: bodies.map(b => [Math.round(b.x), Math.round(b.y), b.lvl, Math.round(b.r)]) });
+}
+
+function battleOver(won, why) {
+  if (state !== 'play') return;
+  state = 'over'; overDelay = 1;
+  if (won) SFX.mega(); else SFX.over();
+  if (!won) send({ t: 'lose', why: 'overflow' });
+  sendSnapshot(true);
+  document.getElementById('overTitle').textContent = won ? 'YOU WIN!' : 'YOU LOSE!';
+  document.getElementById('overScore').textContent = score;
+  document.getElementById('overBest').textContent = why + ' · ' + (net ? net.oppName : 'Opponent') + ' scored ' + opp.score;
+  document.getElementById('overBiggest').textContent = 'Biggest: ' + BODIES[maxLvl].name + ' (' + (maxLvl + 1) + '/' + BODIES.length + ')';
+  syncAgain();
+}
+
+function requestRematch() {
+  if (!net || !net.conn) return;
+  net.myReady = true;
+  send({ t: 'again' });
+  syncAgain();
+  hostMaybeStart();
+}
+
+// the rematch button shows who is ready; battles have no Top 10
+function syncAgain(gone) {
+  const b = document.getElementById('againBtn');
+  document.getElementById('overBoardBtn').classList.toggle('hidden', mode === 'battle');
+  if (mode !== 'battle') { b.textContent = 'Play again'; b.disabled = false; return; }
+  b.disabled = !net;
+  b.textContent = !net ? (gone || 'Opponent left') : net.myReady ? 'Waiting for ' + net.oppName + '…'
+    : net.oppReady ? net.oppName + ' wants a rematch!' : 'Rematch';
 }
 
 // ---------------------------------------------------------------- physics
@@ -470,7 +736,7 @@ function solve() {
       if (o.dead) continue;
       const dx = o.x - a.x, dy = o.y - a.y, rs = a.r + o.r, d2 = dx * dx + dy * dy;
       if (d2 >= rs * rs) continue;
-      if (a.lvl === o.lvl && state === 'play') { merge(a, o); break; }
+      if (a.lvl === o.lvl && a.lvl !== ROCK && state === 'play') { merge(a, o); break; }
       const d = Math.sqrt(d2) || .001, ov = rs - d, nx = dx / d, ny = dy / d;
       const ma = a.r * a.r, mo = o.r * o.r, t = ma + mo;
       a.x -= nx * ov * mo / t; a.y -= ny * ov * mo / t;
@@ -496,6 +762,15 @@ function burst(x, y, lvl, big) {
   particles.push({ ring: true, x, y, life: 0, max: .35, r0: f.r * .6, r1: f.r * 1.6 * big, col: f.color });
 }
 
+function rockBurst(x, y, r) {
+  for (let i = 0; i < 16; i++) {
+    const a = Math.random() * TAU, sp = 120 + Math.random() * 240;
+    particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0, max: .5 + Math.random() * .4,
+      col: ['#b7b0a6', '#8a8278', '#5e574f'][i % 3], size: 3 + Math.floor(Math.random() * 3) * 2 });
+  }
+  particles.push({ ring: true, x, y, life: 0, max: .3, r0: r * .6, r1: r * 1.6, col: '#e8ecf2' });
+}
+
 function popup(x, y, text, col, size) {
   popups.push({ x: Math.max(70, Math.min(W - 70, x)), y, text, col, size, life: 0, max: 1.2 });
 }
@@ -515,6 +790,9 @@ function update() {
     dangerT = danger ? dangerT + DT : Math.max(0, dangerT - DT * 2);
     if (danger && Math.floor(clock * 2) !== Math.floor((clock - DT) * 2)) SFX.warn();
     if (dangerT > 3) gameOver('OVERFLOW!');
+    if (countdown > -1) countdown -= DT;   // goes a little below zero so "GO!" can show
+    updateGarbage();
+    sendSnapshot();
 
     if (cooldown > 0) { cooldown -= DT; if (cooldown <= 0) { heldLvl = nextLvl; nextLvl = randDrop(); } }
     if (queued && cooldown <= 0) { queued = false; drop(); }
@@ -545,6 +823,7 @@ function update() {
 
 // save the current score if it beats the best; also used when a game is quit or the page is hidden
 function recordScore() {
+  if (mode === 'battle') return false;
   const key = bestKey();
   if (score <= (best[key] || 0)) return false;
   best[key] = score; saveBestLocal(); cloudSubmit(key);
@@ -552,9 +831,11 @@ function recordScore() {
 }
 
 function gameOver(reason) {
+  if (mode === 'battle') { battleOver(false, 'You overflowed'); return; }
   if (state !== 'play') return;
   state = 'over'; overDelay = 1;
   SFX.over();
+  syncAgain();
   const key = bestKey(), isBest = recordScore();
   document.getElementById('overTitle').textContent = reason;
   document.getElementById('overScore').textContent = score;
@@ -585,6 +866,84 @@ function drawBody(lvl, x, y, r) {
   }
   const s = SPRITE_SIZE * r / SPRITE_BODY_R;
   ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
+}
+
+// grumpy pixel asteroid, drawn once; ROCK_PX is its radius in sprite pixels
+const ROCK_SIZE = 32, ROCK_PX = 13;
+let rockSprite = null;
+function makeRockSprite() {
+  const c = document.createElement('canvas'); c.width = c.height = ROCK_SIZE;
+  const g = c.getContext('2d'), img = g.createImageData(ROCK_SIZE, ROCK_SIZE);
+  let seed = 17;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const craters = [[-4, -5, 3], [5, 3, 2.5], [-3, 6, 2]];
+  const rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const C = ['#d6cfc4', '#b7b0a6', '#8a8278', '#5e574f', '#2c2a33'].map(rgb);
+  for (let py = 0; py < ROCK_SIZE; py++) for (let px = 0; px < ROCK_SIZE; px++) {
+    const dx = px + .5 - ROCK_SIZE / 2, dy = py + .5 - ROCK_SIZE / 2, a = Math.atan2(dy, dx), d = Math.hypot(dx, dy);
+    const rad = ROCK_PX * (1 + .1 * Math.sin(3 * a + 1) + .06 * Math.sin(5 * a + 2));
+    const n = rnd();
+    if (d > rad) continue;
+    let tone;
+    if (d > rad - 1.2) tone = 4;
+    else {
+      const light = (-dx - dy) / (rad * 1.5) + (n - .5) * .3;
+      tone = light > .35 ? 0 : light > -.05 ? 1 : light > -.45 ? 2 : 3;
+      for (const [cx, cy, cr] of craters) {
+        const cd = Math.hypot(dx - cx, dy - cy);
+        if (cd < cr) tone = Math.min(3, tone + 1);
+        else if (cd < cr + 1 && dx - cx + dy - cy > 0) tone = Math.max(0, tone - 1);   // lit rim
+      }
+    }
+    const i = (py * ROCK_SIZE + px) * 4, col = C[tone];
+    img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  // angry face: brows, eyes, frown
+  g.fillStyle = '#1a1820';
+  const m = ROCK_SIZE / 2;
+  for (const [x, y] of [[-6, -4], [-5, -3], [-4, -3], [5, -4], [4, -3], [3, -3], [-5, -1], [-4, -1], [-5, 0], [-4, 0], [3, -1], [4, -1], [3, 0], [4, 0],
+    [-2, 5], [-1, 4], [0, 4], [1, 5]]) g.fillRect(m + x, m + y, 1, 1);
+  return c;
+}
+
+function drawRock(x, y, r) {
+  if (!rockSprite) rockSprite = makeRockSprite();
+  const s = ROCK_SIZE * r / ROCK_PX;
+  ctx.drawImage(rockSprite, Math.round(x - s / 2), Math.round(y - s / 2), Math.round(s), Math.round(s));
+}
+
+function drawBattleOverlay() {
+  if (garbage > 0) {
+    const blink = garbageT > .3 && Math.sin(clock * 16) > 0;
+    text('▼ ' + garbage + (garbage > 1 ? ' ASTEROIDS' : ' ASTEROID'), BOX.r - 12, BOX.t + 30, 20, blink ? '#fff' : '#ff5a5a', 'right');
+  }
+  if (countdown > 0 && state === 'play') {
+    const n = Math.ceil(countdown), k = n - countdown;
+    ctx.globalAlpha = 1 - k * .6;
+    text(String(n), W / 2, 480, 120 * (1 + k * .4), '#fff');
+    ctx.globalAlpha = 1;
+    text('VS ' + (net ? net.oppName : 'Opponent').toUpperCase(), W / 2, 590, 32, '#ffd666');
+  } else if (countdown > -.6 && state === 'play') text('GO!', W / 2, 480, 110, '#3fbf6a');
+}
+
+// the opponent's box in miniature, with their name and score
+function drawOpponent() {
+  const x0 = 318, y0 = 18, k = 76 / (BOX.b - BOX.t), w = Math.round((BOX.r - BOX.l) * k), h = 76;
+  ctx.fillStyle = '#0b0820'; ctx.fillRect(x0, y0, w, h);
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
+  for (const [x, y, lvl, r] of opp.bodies) {
+    if (!BODIES[lvl] && lvl !== ROCK) continue;
+    ctx.fillStyle = lvl === ROCK ? '#8a8278' : BODIES[lvl].color;
+    ctx.beginPath(); ctx.arc(x0 + (x - BOX.l) * k, y0 + (y - BOX.t) * k, Math.max(1, r * k), 0, TAU); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,64,64,.7)'; ctx.fillRect(x0, Math.round(y0 + (DANGER_Y - BOX.t) * k), w, 1);
+  ctx.restore();
+  ctx.fillStyle = '#2a2266'; ctx.fillRect(x0, y0, w, 3); ctx.fillRect(x0, y0 + h - 3, w, 3); ctx.fillRect(x0, y0, 3, h); ctx.fillRect(x0 + w - 3, y0, 3, h);
+  const name = net ? net.oppName : 'Opponent';
+  text(name.length > 7 ? name.slice(0, 6) + '…' : name, 414, 32, 16, '#8f88ff', 'center', null);
+  text(String(opp.score), 414, 62, 24, '#fff');
+  if (opp.garbage > 0) text('▼' + opp.garbage, 414, 88, 15, '#ff5a5a');
 }
 
 function render() {
@@ -624,7 +983,8 @@ function render() {
 
   for (const b of bodies) {
     const pulse = b.pop > 0 ? 1 + .18 * Math.sin((.25 - b.pop) / .25 * Math.PI) : 1;
-    drawBody(b.lvl, b.x, b.y, b.r * pulse);
+    if (b.lvl === ROCK) drawRock(b.x, b.y, b.r);
+    else drawBody(b.lvl, b.x, b.y, b.r * pulse);
   }
 
   for (const p of particles) {
@@ -662,6 +1022,7 @@ function render() {
   }
   ctx.globalAlpha = 1;
 
+  if (mode === 'battle' && state !== 'menu') drawBattleOverlay();
   if (dangerT > .3 && state === 'play') text('TOO FULL! ' + Math.max(0, 3 - dangerT).toFixed(1), W / 2, DANGER_Y + 28, 26, '#ff5a5a');
   ctx.restore();
 
@@ -681,7 +1042,8 @@ function drawHud() {
   text('NEXT', 255, 29, 13, '#8f88ff', 'center', null);
   if (state !== 'menu') drawBody(nextLvl, 255, 62, Math.min(22, BODIES[nextLvl].r));
 
-  if (mode === 'timed') {
+  if (mode === 'battle') drawOpponent();
+  else if (mode === 'timed') {
     const t = Math.ceil(timeLeft), low = t <= 10 && state === 'play';
     text('TIME', 395, 34, 18, '#8f88ff', 'center', null);
     const blinkOn = !low || Math.sin(clock * 10) > -.3;
@@ -740,14 +1102,25 @@ addEventListener('keydown', e => {
     else if (e.key === 'Escape' || e.key === 'p') pauseGame();
     aimX = Math.max(BOX.l, Math.min(BOX.r, aimX));
   } else if (state === 'pause' && (e.key === 'Escape' || e.key === 'p')) resumeGame();
+  else if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'pcode') joinRoom();
 });
 
-function pauseGame() { if (state === 'play') { state = 'pause'; aiming = false; showOverlay('pause'); SFX.click(); } }
+function pauseGame() {
+  if (state !== 'play') return;
+  aiming = false; SFX.click();
+  // a battle can't be paused: the menu opens over the running match so you can leave
+  if (mode === 'battle') { showOverlay(document.getElementById('pause').classList.contains('hidden') ? 'pause' : null); return; }
+  state = 'pause'; showOverlay('pause');
+}
 function resumeGame() { state = 'play'; showOverlay(null); }
 
 function showOverlay(id) {
-  for (const k of ['menu', 'pause', 'over', 'board', 'who']) document.getElementById(k).classList.toggle('hidden', k !== id);
+  for (const k of ['menu', 'pause', 'over', 'board', 'who', 'lobby']) document.getElementById(k).classList.toggle('hidden', k !== id);
   if (id === 'menu') refreshMenu();
+  if (id === 'pause') {
+    document.getElementById('pauseTitle').textContent = mode === 'battle' ? 'STILL PLAYING!' : 'PAUSED';
+    document.getElementById('restartBtn').classList.toggle('hidden', mode === 'battle');
+  }
 }
 
 function refreshMenu() {
@@ -875,9 +1248,18 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
   if (act === 'start') startPressed();
   else if (act === 'mode') { sel.mode = btn.dataset.mode; saveSel(); refreshMenu(); }
   else if (act === 'min') { sel.min = +btn.dataset.min; saveSel(); refreshMenu(); }
+  else if (act === 'battle') openLobby();
+  else if (act === 'host') { if (!net) hostRoom(); }
+  else if (act === 'join') { if (!net) joinRoom(); }
+  else if (act === 'leave') { closeNet(); showOverlay('menu'); }
+  else if (act === 'restart' && mode === 'battle') requestRematch();
   else if (act === 'restart') { if (state === 'pause') recordScore(); newGame(); }
   else if (act === 'resume') resumeGame();
-  else if (act === 'menu') { if (state === 'pause') recordScore(); state = 'menu'; bodies = []; showOverlay('menu'); }
+  else if (act === 'menu') {
+    if (state === 'pause') recordScore();
+    if (mode === 'battle') { leaveBattle(); mode = sel.mode; startTime = sel.min * 60; setDifficulty(savedDifficulty()); }
+    state = 'menu'; bodies = []; showOverlay('menu');
+  }
   else if (act === 'diff') { setDifficulty(btn.dataset.diff); refreshMenu(); }
   else if (act === 'music') setMusic(!A.musicOn);
   else if (act === 'sfx') setSfx(!A.sfxOn);
@@ -891,7 +1273,7 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.addEventListener('cli
 }));
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { pauseGame(); if (state === 'pause') recordScore(); if (A.ctx) A.ctx.suspend(); }
+  if (document.hidden) { if (mode !== 'battle') pauseGame(); if (state === 'pause') recordScore(); if (A.ctx) A.ctx.suspend(); }
   else if (A.ctx) A.ctx.resume();
 });
 
