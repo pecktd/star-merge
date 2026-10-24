@@ -515,9 +515,15 @@ function updateGarbage() {
   garbageT -= DT;
   if (garbageT > 0) return;
   // an asteroid about Pluto to Mercury size from a random spot along the top, one at a time so they don't stack up
-  const r = BODIES[1].r + Math.random() * (BODIES[3].r - BODIES[1].r);
-  const x = BOX.l + r + Math.random() * (BOX.r - BOX.l - 2 * r);
-  const b = spawn(x, BOX.t + r + 2, 0, (Math.random() - .5) * 3, 2);
+  const r = BODIES[1].r + Math.random() * (BODIES[3].r - BODIES[1].r), y = BOX.t + r + 2;
+  // only into empty space: a rock spawned on top of another piece gets shoved out of the box
+  let x = -1;
+  for (let i = 0; i < 12 && x < 0; i++) {
+    const tx = BOX.l + r + Math.random() * (BOX.r - BOX.l - 2 * r);
+    if (!bodies.some(o => !o.dead && Math.hypot(o.x - tx, o.y - y) < o.r + r + 2)) x = tx;
+  }
+  if (x < 0) { garbageT = .1; return; }   // top is crowded; try again shortly
+  const b = spawn(x, y, 0, (Math.random() - .5) * 3, 2);
   b.lvl = ROCK; b.r = b.tr = r;
   garbage--; garbageT = .09;
   SFX.thud();
@@ -747,6 +753,7 @@ function solve() {
     if (b.dead) continue;
     if (b.x < BOX.l + b.r) b.x = BOX.l + b.r;
     if (b.x > BOX.r - b.r) b.x = BOX.r - b.r;
+    if (b.y < BOX.t + b.r) { b.y = BOX.t + b.r; if (b.py > b.y) b.py = b.y; }
     if (b.y > BOX.b - b.r) { b.y = BOX.b - b.r; b.px = b.x - (b.x - b.px) * .94; }
   }
 }
