@@ -383,7 +383,7 @@ let state = 'menu';          // menu | play | pause | over
 let mode = 'timed';          // timed | endless | battle
 let bodies = [], particles = [], popups = [];
 let startTime = 60, score = 0, timeLeft = startTime, maxLvl = 0, combo = 0, lastMerge = -9, clock = 0;
-let heldLvl = 0, nextLvl = 0, cooldown = 0, queued = false, aimX = W / 2, aiming = false;
+let heldLvl = 0, nextLvl = 0, cooldown = 0, lastDrop = null, aimX = W / 2, aiming = false;
 let dangerT = 0, shake = 0, lastTickSec = 99, overDelay = 0, flash = 0;
 // battle: asteroids the opponent sent that have not landed yet, and their latest board
 let garbage = 0, garbageT = 0, countdown = 0, opp = { bodies: [], score: 0, maxLvl: 0, garbage: 0 };
@@ -412,7 +412,7 @@ function newGame(m, secs) {
   if (secs) startTime = secs;
   bodies = []; particles = []; popups = [];
   score = 0; timeLeft = startTime; maxLvl = 0; combo = 0; lastMerge = -9;
-  heldLvl = randDrop(); nextLvl = randDrop(); cooldown = 0; queued = false;
+  heldLvl = randDrop(); nextLvl = randDrop(); cooldown = 0; lastDrop = null;
   dangerT = 0; shake = 0; lastTickSec = 99; flash = 0;
   garbage = 0; garbageT = 0; countdown = mode === 'battle' ? 3 : 0;
   opp = { bodies: [], score: 0, maxLvl: 0, garbage: 0 };
@@ -429,12 +429,12 @@ function spawn(x, y, lvl, vx = 0, vy = 0, grow = false) {
 
 function drop() {
   if (state !== 'play' || countdown > 0) return;
-  if (cooldown > 0 || heldLvl < 0) { queued = true; return; }   // remember taps made while reloading
+  if (cooldown > 0 || heldLvl < 0) return;   // taps before the next piece is ready are ignored
   const r = BODIES[heldLvl].r;
   const x = Math.max(BOX.l + r, Math.min(BOX.r - r, aimX));
   // the previous piece may still be in the drop spot; wait for it instead of overlapping
-  if (bodies.some(b => Math.hypot(b.x - x, b.y - dropY(r)) < b.r + r)) { queued = true; return; }
-  spawn(x, dropY(r), heldLvl);
+  if (bodies.some(b => Math.hypot(b.x - x, b.y - dropY(r)) < b.r + r)) return;
+  lastDrop = spawn(x, dropY(r), heldLvl);
   heldLvl = -1; cooldown = DROP_COOLDOWN;
   SFX.drop();
 }
@@ -743,6 +743,7 @@ function solve() {
       const dx = o.x - a.x, dy = o.y - a.y, rs = a.r + o.r, d2 = dx * dx + dy * dy;
       if (d2 >= rs * rs) continue;
       if (a.lvl === o.lvl && a.lvl !== ROCK && state === 'play') { merge(a, o); break; }
+      a.landed = o.landed = true;
       const d = Math.sqrt(d2) || .001, ov = rs - d, nx = dx / d, ny = dy / d;
       const ma = a.r * a.r, mo = o.r * o.r, t = ma + mo;
       a.x -= nx * ov * mo / t; a.y -= ny * ov * mo / t;
@@ -754,7 +755,7 @@ function solve() {
     if (b.x < BOX.l + b.r) b.x = BOX.l + b.r;
     if (b.x > BOX.r - b.r) b.x = BOX.r - b.r;
     if (b.y < BOX.t + b.r) { b.y = BOX.t + b.r; if (b.py > b.y) b.py = b.y; }
-    if (b.y > BOX.b - b.r) { b.y = BOX.b - b.r; b.px = b.x - (b.x - b.px) * .94; }
+    if (b.y > BOX.b - b.r) { b.y = BOX.b - b.r; b.landed = true; b.px = b.x - (b.x - b.px) * .94; }
   }
 }
 
@@ -801,8 +802,11 @@ function update() {
     updateGarbage();
     sendSnapshot();
 
-    if (cooldown > 0) { cooldown -= DT; if (cooldown <= 0) { heldLvl = nextLvl; nextLvl = randDrop(); } }
-    if (queued && cooldown <= 0) { queued = false; drop(); }
+    if (cooldown > 0) cooldown -= DT;
+    // the next piece is ready once the last one has landed on the floor or another piece (or merged)
+    if (heldLvl < 0 && cooldown <= 0 && (!lastDrop || lastDrop.dead || lastDrop.landed || lastDrop.age > 3)) {
+      heldLvl = nextLvl; nextLvl = randDrop();
+    }
 
     if (mode === 'timed') {
       timeLeft -= DT;
