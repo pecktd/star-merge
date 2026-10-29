@@ -11,6 +11,17 @@ service cloud.firestore {
         && request.resource.data.best is map;
     }
 
+    // ninefold/{uid}: { saves: { <hero name>: character } }, The Ninefold Crown's saved heroes
+    // (ninefold_crown/game/client/src/cloud.js), private to the signed-in player; the game checks
+    // every field again when a hero is loaded (World.restore)
+    match /ninefold/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['saves'])
+        && request.resource.data.saves is map
+        && request.resource.data.saves.size() <= 12;
+    }
+
     // boards/{game_key}/entries/{uid}: { name, score, at }, public leaderboard
     // game_key is <game>_<mode><secs>_<difficulty>, e.g. sm_timed60_hard
     match /boards/{board}/entries/{uid} {
